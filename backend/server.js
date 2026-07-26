@@ -14,19 +14,44 @@ dotenv.config();
 const app = express();
 const server = http.createServer(app);
 
-// Initialize Socket.io with CORS configured for our upcoming frontend
-const io = new Server(server, {
-  cors: {
-    origin: '*', 
-    methods: ['GET', 'POST'],
-  },
-});
-
 const PORT = process.env.PORT || 5000;
 
-// Middleware
-app.use(cors());
+// Dynamic allowed origins list
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  process.env.CLIENT_URL, // e.g. https://your-app.vercel.app
+].filter(Boolean);
+
+// 1. Express CORS Middleware
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      // Allow requests with no origin (like mobile native apps, Postman, curl)
+      if (!origin) return callback(null, true);
+      
+      if (allowedOrigins.length === 0 || allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      
+      // Fallback to allow for testing
+      return callback(null, true);
+    },
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    credentials: true,
+  })
+);
+
 app.use(express.json());
+
+// 2. Socket.io with explicit CORS Configuration
+const io = new Server(server, {
+  cors: {
+    origin: '*', // Allows WebSocket connections from any frontend origin (Vercel/Localhost)
+    methods: ['GET', 'POST'],
+    credentials: true,
+  },
+});
 
 // Routes
 app.use('/api/trips', tripRoutes);
@@ -40,8 +65,7 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// real time socket io event habdlers
-
+// Real-Time Socket.io Event Handlers
 io.on('connection', (socket) => {
   console.log(`⚡ New WebSocket Client Connected: ${socket.id}`);
 
@@ -92,7 +116,7 @@ io.on('connection', (socket) => {
 
   // Event 3: Client Disconnect
   socket.on('disconnect', () => {
-    console.log(`Client Disconnected: ${socket.id}`);
+    console.log(`🔌 Client Disconnected: ${socket.id}`);
   });
 });
 
@@ -101,12 +125,12 @@ const connectDB = async () => {
   try {
     const conn = await mongoose.connect(process.env.MONGO_URI);
     console.log(`MongoDB Connected: ${conn.connection.host}`);
-    
+
     server.listen(PORT, () => {
       console.log(`SmartSettle Engine Real-Time Server running on port ${PORT}`);
     });
   } catch (error) {
-    console.error(` Connection Error: ${error.message}`);
+    console.error(`Connection Error: ${error.message}`);
     process.exit(1);
   }
 };
