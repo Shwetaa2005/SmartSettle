@@ -1,30 +1,56 @@
 import React, { useState } from 'react';
-import { ArrowLeft, ExternalLink, CheckCircle, Clock, ShieldCheck, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
+import { ArrowLeft, ExternalLink, CheckCircle, Clock, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
 
-export default function Settlement({ trip, settlements = [], currentUser, onBack }) {
+export default function Settlement({ 
+  trip = { title: 'Trip', participants: [] }, 
+  settlements = [], 
+  currentUser = '', 
+  onBack,
+  onMarkPaid,
+  onConfirmSettlement
+}) {
   const [pendingHandshakes, setPendingHandshakes] = useState({});
   const [showAllTransactions, setShowAllTransactions] = useState(false);
 
-  // Helper to build native UPI link
+  // Helper to build native UPI deep link
   const generateUPILink = (payeeUpi, payeeName, amount) => {
-    const cleanAmount = parseFloat(amount).toFixed(2);
-    const encodedName = encodeURIComponent(payeeName);
-    const note = encodeURIComponent(`SmartSettle - ${trip.title}`);
+    const cleanAmount = parseFloat(amount || 0).toFixed(2);
+    const encodedName = encodeURIComponent(payeeName || '');
+    const note = encodeURIComponent(`SmartSettle - ${trip?.title || 'Trip'}`);
     return `upi://pay?pa=${payeeUpi}&pn=${encodedName}&am=${cleanAmount}&cu=INR&tn=${note}`;
   };
 
-  const handleMarkPaid = (key) => {
+  const handleMarkPaid = async (key, item) => {
+    // 1. Optimistic local UI update
     setPendingHandshakes((prev) => ({ ...prev, [key]: 'awaiting_confirmation' }));
+    
+    // 2. Trigger parent/API callback if provided
+    if (onMarkPaid) {
+      try {
+        await onMarkPaid(item);
+      } catch (error) {
+        console.error('Failed to mark transaction as paid:', error);
+      }
+    }
   };
 
-  const handleConfirmReceived = (key) => {
+  const handleConfirmReceived = async (key, item) => {
+    // 1. Optimistic local UI update
     setPendingHandshakes((prev) => ({ ...prev, [key]: 'settled' }));
+
+    // 2. Trigger parent/API callback if provided
+    if (onConfirmSettlement) {
+      try {
+        await onConfirmSettlement(item);
+      } catch (error) {
+        console.error('Failed to confirm settlement:', error);
+      }
+    }
   };
 
   // Filter settlements specific to the logged-in user
   const myDebts = settlements.filter((s) => s.from === currentUser);
   const myReceivables = settlements.filter((s) => s.to === currentUser);
-  const otherSettlements = settlements.filter((s) => s.from !== currentUser && s.to !== currentUser);
 
   // Calculate Net Personal Balance
   const totalOwed = myDebts.reduce((sum, item) => sum + item.amount, 0);
@@ -38,7 +64,7 @@ export default function Settlement({ trip, settlements = [], currentUser, onBack
         <div className="max-w-md mx-auto flex items-center justify-between">
           <button
             onClick={onBack}
-            className="flex items-center space-x-1 text-xs font-bold text-slate-600 hover:text-indigo-600"
+            className="flex items-center space-x-1 text-xs font-bold text-slate-600 hover:text-indigo-600 transition-colors"
           >
             <ArrowLeft size={16} />
             <span>Dashboard</span>
@@ -86,7 +112,7 @@ export default function Settlement({ trip, settlements = [], currentUser, onBack
 
             {myDebts.map((item, idx) => {
               const key = `${item.from}-${item.to}-${item.amount}`;
-              const state = pendingHandshakes[key] || 'unpaid';
+              const state = pendingHandshakes[key] || item.status || 'unpaid';
               const payeeInfo = trip.participants?.find((p) => p.name === item.to);
               const upiId = payeeInfo?.upiId;
 
@@ -117,8 +143,8 @@ export default function Settlement({ trip, settlements = [], currentUser, onBack
                       )}
 
                       <button
-                        onClick={() => handleMarkPaid(key)}
-                        className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl"
+                        onClick={() => handleMarkPaid(key, item)}
+                        className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-colors"
                       >
                         Mark as Paid / Sent
                       </button>
@@ -129,6 +155,13 @@ export default function Settlement({ trip, settlements = [], currentUser, onBack
                     <div className="bg-amber-50 p-2.5 rounded-xl border border-amber-200 text-amber-700 text-xs font-bold flex items-center justify-center space-x-1.5">
                       <Clock size={14} className="animate-spin" />
                       <span>Awaiting {item.to}'s confirmation</span>
+                    </div>
+                  )}
+
+                  {state === 'settled' && (
+                    <div className="bg-emerald-50 p-2 rounded-xl text-emerald-700 text-xs font-bold flex items-center justify-center space-x-1">
+                      <CheckCircle size={14} />
+                      <span>Payment Settled</span>
                     </div>
                   )}
                 </div>
@@ -147,7 +180,7 @@ export default function Settlement({ trip, settlements = [], currentUser, onBack
 
             {myReceivables.map((item, idx) => {
               const key = `${item.from}-${item.to}-${item.amount}`;
-              const state = pendingHandshakes[key] || 'unpaid';
+              const state = pendingHandshakes[key] || item.status || 'unpaid';
 
               return (
                 <div key={idx} className="bg-white rounded-2xl p-4 border border-emerald-100 shadow-sm space-y-3">
@@ -165,8 +198,8 @@ export default function Settlement({ trip, settlements = [], currentUser, onBack
 
                   {state === 'awaiting_confirmation' && (
                     <button
-                      onClick={() => handleConfirmReceived(key)}
-                      className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-md"
+                      onClick={() => handleConfirmReceived(key, item)}
+                      className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-md transition-all"
                     >
                       Confirm Cash/UPI Received
                     </button>
