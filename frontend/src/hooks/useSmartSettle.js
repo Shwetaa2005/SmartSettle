@@ -47,6 +47,16 @@ export function useSmartSettle(initialTripData) {
       if (newSettlements) setSettlements(newSettlements);
     });
 
+    // 2. Listen for participant list updates in real-time
+    socket.on('participants_updated', ({ participants }) => {
+      setTrip((prev) => {
+        if (!prev) return prev;
+        const updated = { ...prev, participants };
+        cacheTripLocally(updated);
+        return updated;
+      });
+    });
+
     // Network Status Listeners
     const handleOnline = () => {
       console.log('📶 Back online! Initiating background sync...');

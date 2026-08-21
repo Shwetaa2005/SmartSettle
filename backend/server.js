@@ -70,15 +70,22 @@ io.on('connection', (socket) => {
   console.log(`⚡ New WebSocket Client Connected: ${socket.id}`);
 
   // Event 1: User joins a specific trip room
-  socket.on('join_trip', ({ tripId, userName }) => {
+  socket.on('join_trip', async ({ tripId, userName }) => {
     socket.join(tripId);
     console.log(`👤 User '${userName}' (${socket.id}) joined Room: [${tripId}]`);
 
-    // Broadcast to others in the same room that a new user joined
-    socket.to(tripId).emit('user_joined_room', {
-      message: `${userName} has joined the trip live!`,
-      userName,
-    });
+    try {
+      // Fetch fresh trip data to get the updated participants array
+      const trip = await Trip.findOne({ tripId });
+      if (trip) {
+        // Broadcast updated participants to EVERYONE in the room (including the host)
+        io.to(tripId).emit('participants_updated', {
+          participants: trip.participants,
+        });
+      }
+    } catch (err) {
+      console.error('Error fetching participants on join:', err.message);
+    }
   });
 
   // Event 2: Real-time Expense Logging & Offline Sync Push
