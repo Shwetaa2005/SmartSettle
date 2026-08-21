@@ -7,7 +7,8 @@ export default function Settlement({
   currentUser = '', 
   onBack,
   onMarkPaid,
-  onConfirmSettlement
+  onConfirmSettlement,
+  onRejectSettlement
 }) {
   const [pendingHandshakes, setPendingHandshakes] = useState({});
   const [showAllTransactions, setShowAllTransactions] = useState(false);
@@ -21,10 +22,7 @@ export default function Settlement({
   };
 
   const handleMarkPaid = async (key, item) => {
-    // 1. Optimistic local UI update
     setPendingHandshakes((prev) => ({ ...prev, [key]: 'awaiting_confirmation' }));
-    
-    // 2. Trigger parent/API callback if provided
     if (onMarkPaid) {
       try {
         await onMarkPaid(item);
@@ -35,15 +33,23 @@ export default function Settlement({
   };
 
   const handleConfirmReceived = async (key, item) => {
-    // 1. Optimistic local UI update
     setPendingHandshakes((prev) => ({ ...prev, [key]: 'settled' }));
-
-    // 2. Trigger parent/API callback if provided
     if (onConfirmSettlement) {
       try {
         await onConfirmSettlement(item);
       } catch (error) {
         console.error('Failed to confirm settlement:', error);
+      }
+    }
+  };
+
+  const handleReject = async (key, item) => {
+    setPendingHandshakes((prev) => ({ ...prev, [key]: 'unpaid' }));
+    if (onRejectSettlement) {
+      try {
+        await onRejectSettlement(item);
+      } catch (error) {
+        console.error('Failed to reject settlement:', error);
       }
     }
   };
@@ -112,7 +118,7 @@ export default function Settlement({
 
             {myDebts.map((item, idx) => {
               const key = `${item.from}-${item.to}-${item.amount}`;
-              const state = pendingHandshakes[key] || item.status || 'unpaid';
+              const currentStatus = item.status || pendingHandshakes[key] || 'unpaid';
               const payeeInfo = trip.participants?.find((p) => p.name === item.to);
               const upiId = payeeInfo?.upiId;
 
@@ -126,7 +132,7 @@ export default function Settlement({
                     <span className="text-xl font-black text-rose-600">₹{item.amount.toFixed(2)}</span>
                   </div>
 
-                  {state === 'unpaid' && (
+                  {currentStatus === 'unpaid' && (
                     <div className="space-y-2 pt-1">
                       {upiId ? (
                         <a
@@ -151,14 +157,14 @@ export default function Settlement({
                     </div>
                   )}
 
-                  {state === 'awaiting_confirmation' && (
+                  {currentStatus === 'awaiting_confirmation' && (
                     <div className="bg-amber-50 p-2.5 rounded-xl border border-amber-200 text-amber-700 text-xs font-bold flex items-center justify-center space-x-1.5">
                       <Clock size={14} className="animate-spin" />
                       <span>Awaiting {item.to}'s confirmation</span>
                     </div>
                   )}
 
-                  {state === 'settled' && (
+                  {currentStatus === 'settled' && (
                     <div className="bg-emerald-50 p-2 rounded-xl text-emerald-700 text-xs font-bold flex items-center justify-center space-x-1">
                       <CheckCircle size={14} />
                       <span>Payment Settled</span>
@@ -180,7 +186,7 @@ export default function Settlement({
 
             {myReceivables.map((item, idx) => {
               const key = `${item.from}-${item.to}-${item.amount}`;
-              const state = pendingHandshakes[key] || item.status || 'unpaid';
+              const currentStatus = item.status || pendingHandshakes[key] || 'unpaid';
 
               return (
                 <div key={idx} className="bg-white rounded-2xl p-4 border border-emerald-100 shadow-sm space-y-3">
@@ -192,20 +198,35 @@ export default function Settlement({
                     <span className="text-xl font-black text-emerald-600">₹{item.amount.toFixed(2)}</span>
                   </div>
 
-                  {state === 'unpaid' && (
-                    <p className="text-xs text-slate-400">Waiting for {item.from} to initiate transfer.</p>
+                  {currentStatus === 'unpaid' && (
+                    <p className="text-xs text-slate-400 italic">
+                      Waiting for {item.from} to send payment.
+                    </p>
                   )}
 
-                  {state === 'awaiting_confirmation' && (
-                    <button
-                      onClick={() => handleConfirmReceived(key, item)}
-                      className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-md transition-all"
-                    >
-                      Confirm Cash/UPI Received
-                    </button>
+                  {currentStatus === 'awaiting_confirmation' && (
+                    <div className="bg-amber-50 p-3 rounded-xl border border-amber-200 space-y-2">
+                      <p className="text-xs font-bold text-amber-800">
+                        🔔 {item.from} marked this payment as paid. Please verify your UPI/cash.
+                      </p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          onClick={() => handleConfirmReceived(key, item)}
+                          className="py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg transition-all"
+                        >
+                          Confirm Received
+                        </button>
+                        <button
+                          onClick={() => handleReject(key, item)}
+                          className="py-2 bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold text-xs rounded-lg transition-all"
+                        >
+                          Reject / Not Received
+                        </button>
+                      </div>
+                    </div>
                   )}
 
-                  {state === 'settled' && (
+                  {currentStatus === 'settled' && (
                     <div className="bg-emerald-50 p-2 rounded-xl text-emerald-700 text-xs font-bold flex items-center justify-center space-x-1">
                       <CheckCircle size={14} />
                       <span>Payment Settled</span>
@@ -229,9 +250,18 @@ export default function Settlement({
           {showAllTransactions && (
             <div className="mt-3 space-y-2">
               {settlements.map((item, idx) => (
-                <div key={idx} className="bg-white p-3 rounded-xl border border-slate-200 text-xs flex justify-between">
+                <div key={idx} className="bg-white p-3 rounded-xl border border-slate-200 text-xs flex justify-between items-center">
                   <span className="font-semibold text-slate-700">{item.from} owes {item.to}</span>
-                  <span className="font-bold text-slate-900">₹{item.amount.toFixed(2)}</span>
+                  <div className="flex items-center space-x-2">
+                    <span className="font-bold text-slate-900">₹{item.amount.toFixed(2)}</span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                      item.status === 'settled' ? 'bg-emerald-100 text-emerald-700' :
+                      item.status === 'awaiting_confirmation' ? 'bg-amber-100 text-amber-700' :
+                      'bg-slate-100 text-slate-600'
+                    }`}>
+                      {item.status || 'unpaid'}
+                    </span>
+                  </div>
                 </div>
               ))}
             </div>

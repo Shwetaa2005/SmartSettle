@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
-import { Wifi, WifiOff, Plus, Users, Receipt, Share2, RefreshCw } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { WifiOff, Plus, Users, Receipt, Share2, RefreshCw, ArrowUpRight, CheckCircle2, AlertCircle } from 'lucide-react';
 import ExpenseModal from './ExpenseModal';
 
 export default function Dashboard({ 
-  trip = { title: 'Untitled Trip', tripId: 'N/A', participants: [], expenses: [] }, 
+  trip = { title: 'Untitled Trip', tripId: 'N/A', participants: [], expenses: [], settlementRequests: [] }, 
   settlements = [], 
   isOnline = true, 
   isSyncing = false, 
@@ -13,6 +13,21 @@ export default function Dashboard({
   currentUser = ''
 }) {
   const [isModalOpen, setIsModalOpen] = useState(false);
+
+  const activeUser = currentUser || trip?.hostName || trip?.name || 'User';
+  const participantsList = trip?.participants || [];
+  const expensesList = trip?.expenses || [];
+  const pendingRequests = trip?.settlementRequests || [];
+
+  // Summary Metrics Calculations
+  const totalTripExpenses = useMemo(() => {
+    return expensesList.reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0);
+  }, [expensesList]);
+
+  const perPersonShare = useMemo(() => {
+    const count = participantsList.length || 1;
+    return totalTripExpenses / count;
+  }, [totalTripExpenses, participantsList.length]);
 
   // Safe fallback handler for sharing trip code
   const handleShareTripCode = () => {
@@ -37,11 +52,8 @@ export default function Dashboard({
     setIsModalOpen(false);
   };
 
-  const participantsList = trip?.participants || [];
-  const expensesList = trip?.expenses || [];
-
   return (
-    <div className="min-h-screen bg-slate-100 pb-24">
+    <div className="min-h-screen bg-slate-100 pb-28">
       {/* Network Connection Banner */}
       {!isOnline && (
         <div className="bg-amber-500 text-white px-4 py-2 text-xs font-bold text-center flex items-center justify-center space-x-2 shadow-sm">
@@ -78,6 +90,50 @@ export default function Dashboard({
       </header>
 
       <main className="max-w-md mx-auto p-4 space-y-4">
+        {/* Ledger Balance Card */}
+        <div className="bg-gradient-to-br from-indigo-900 to-slate-900 text-white rounded-3xl p-5 shadow-xl space-y-4">
+          <div className="flex justify-between items-start">
+            <div>
+              <p className="text-xs uppercase tracking-wider text-indigo-200 font-medium">Total Trip Spend</p>
+              <h2 className="text-3xl font-black mt-1">₹{totalTripExpenses.toFixed(2)}</h2>
+            </div>
+            <div className="bg-white/10 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/10 text-right">
+              <p className="text-[10px] text-indigo-200 uppercase tracking-wider font-semibold">Fair Share / Person</p>
+              <p className="text-sm font-bold text-emerald-400">₹{perPersonShare.toFixed(2)}</p>
+            </div>
+          </div>
+
+          <div className="pt-2 border-t border-white/10 flex justify-between items-center text-xs text-slate-300">
+            <span>Logged by: <strong className="text-white">{activeUser}</strong></span>
+            <button 
+              onClick={onNavigateToSettlement} 
+              className="text-indigo-300 hover:text-white font-bold flex items-center space-x-1"
+            >
+              <span>View Calculations</span>
+              <ArrowUpRight size={14} />
+            </button>
+          </div>
+        </div>
+
+        {/* Pending Settlement Requests Notification Banner */}
+        {pendingRequests.filter(r => r.status === 'awaiting_confirmation').length > 0 && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3.5 flex items-center justify-between shadow-sm">
+            <div className="flex items-center space-x-2.5">
+              <AlertCircle size={18} className="text-amber-600 flex-shrink-0" />
+              <div>
+                <p className="text-xs font-bold text-amber-900">Settlements Awaiting Confirmation</p>
+                <p className="text-[11px] text-amber-700">You have pending payment handshakes to verify.</p>
+              </div>
+            </div>
+            <button
+              onClick={onNavigateToSettlement}
+              className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl transition-all"
+            >
+              Review
+            </button>
+          </div>
+        )}
+
         {/* Participants Banner */}
         <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80 space-y-3">
           <div className="flex items-center justify-between">
@@ -114,7 +170,7 @@ export default function Dashboard({
             </div>
           ) : (
             <div className="space-y-2">
-              {expensesList.map((item, idx) => {
+              {expensesList.slice().reverse().map((item, idx) => {
                 const numericAmount = parseFloat(item.amount || 0);
                 const splitCount = item.splitAmong?.length || participantsList.length || 1;
 
@@ -138,7 +194,7 @@ export default function Dashboard({
       </main>
 
       {/* Bottom Fixed Navigation Bar */}
-      <div className="fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 p-4 z-40">
+      <div className="fixed bottom-0 inset-x-0 bg-white/90 backdrop-blur-md border-t border-slate-200 p-4 z-40">
         <div className="max-w-md mx-auto grid grid-cols-2 gap-3">
           <button
             onClick={() => setIsModalOpen(true)}
@@ -161,7 +217,7 @@ export default function Dashboard({
       {isModalOpen && (
         <ExpenseModal
           participants={participantsList}
-          currentUser={currentUser || trip?.hostName || trip?.name || 'User'}
+          currentUser={activeUser}
           onClose={() => setIsModalOpen(false)}
           onSubmitExpense={handleExpenseSubmit}
         />

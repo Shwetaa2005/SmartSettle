@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { io } from 'socket.io-client';
 import { 
   getOfflineQueue, 
@@ -23,7 +23,27 @@ export function useSmartSettle(initialTripData) {
     }
   }, [initialTripData]);
 
-  // 2. Initialize Socket.io and Network Listeners
+  // 2. Offline Queue Sync Handler
+  const syncOfflineQueue = useCallback(async (activeTripId) => {
+    const queue = getOfflineQueue();
+    if (!queue || queue.length === 0) return;
+
+    setIsSyncing(true);
+
+    for (const item of queue) {
+      if (socketRef.current && socketRef.current.connected) {
+        socketRef.current.emit('add_expense', {
+          tripId: item.tripId || activeTripId,
+          expense: item.expense,
+        });
+      }
+    }
+
+    clearOfflineQueue();
+    setIsSyncing(false);
+  }, []);
+
+  // 3. Initialize Socket.io and Network Listeners
   useEffect(() => {
     if (!trip?.tripId) return;
 
@@ -36,7 +56,7 @@ export function useSmartSettle(initialTripData) {
       userName: trip.hostName || trip.name || 'User' 
     });
 
-    // 1. Listen for real-time expense updates
+    // --- Socket Listeners ---
     socket.on('expense_updated', ({ allExpenses, settlements: newSettlements }) => {
       setTrip((prev) => {
         if (!prev) return prev;
@@ -47,7 +67,6 @@ export function useSmartSettle(initialTripData) {
       if (newSettlements) setSettlements(newSettlements);
     });
 
-    // 2. Listen for participant list updates in real-time
     socket.on('participants_updated', ({ participants }) => {
       setTrip((prev) => {
         if (!prev) return prev;
@@ -57,7 +76,6 @@ export function useSmartSettle(initialTripData) {
       });
     });
 
-    // 3. Listen for settlement handshake request updates
     socket.on('settlement_requests_updated', ({ settlementRequests }) => {
       setTrip((prev) => {
         if (!prev) return prev;
@@ -67,7 +85,6 @@ export function useSmartSettle(initialTripData) {
       });
     });
 
-    // 4. Listen for confirmed payment settlement sync
     socket.on('settlement_confirmed_sync', ({ allExpenses, settlements: newSettlements, settlementRequests }) => {
       setTrip((prev) => {
         if (!prev) return prev;
@@ -78,7 +95,6 @@ export function useSmartSettle(initialTripData) {
       if (newSettlements) setSettlements(newSettlements);
     });
 
-    // 5. Listen for rejected settlement sync
     socket.on('settlement_rejected_sync', ({ settlementRequests }) => {
       setTrip((prev) => {
         if (!prev) return prev;
@@ -88,7 +104,7 @@ export function useSmartSettle(initialTripData) {
       });
     });
 
-    // Network Status Listeners
+    // Network Status Handlers
     const handleOnline = () => {
       console.log('📶 Back online! Initiating background sync...');
       setIsOnline(true);
@@ -107,7 +123,7 @@ export function useSmartSettle(initialTripData) {
       syncOfflineQueue(trip.tripId);
     }
 
-    // Comprehensive Cleanup
+    // Cleanup
     return () => {
       socket.off('expense_updated');
       socket.off('participants_updated');
@@ -119,55 +135,70 @@ export function useSmartSettle(initialTripData) {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, [trip?.tripId]);
+  }, [trip?.tripId, syncOfflineQueue]);
 
-  // 3. Handshake Trigger Functions (Placed safely outside useEffect)
+  // 4. Handshake Action Functions
   const initiateSettlement = (from, to, amount) => {
-    if (!trip?.tripId || !socketRef.current) return;
+    if (!trip?.tripId) return;
     const settlementId = `req_${Date.now()}`;
-    socketRef.current.emit('initiate_settlement', {
-      tripId: trip.tripId,
-      settlementId,
-      from,
-      to,
-      amount,
+    const payload = { tripId: trip.tripId, settlementId, from, to, amount, status: 'awaiting_confirmation' };
+
+    // Optimistic UI update
+    setTrip((prev) => {
+      if (!prev) return prev;
+      const currentRequests = prev.settlementRequests || [];
+      const updated = { ...prev, settlementRequests: [...currentRequests, payload] };
+      cacheTripLocally(updated);
+      return updated;
     });
+
+    if (socketRef.current && socketRef.current.connected) {
+      socketRef.current.emit('initiate_settlement', payload);
+    }
   };
 
   const confirmSettlement = (settlementId) => {
-    if (!trip?.tripId || !socketRef.current) return;
-    socketRef.current.emit('confirm_settlement', {
-      tripId: trip.tripId,
-      settlementId,
+    if (!trip?.tripId) return;
+
+    // Optimistic status update
+    setTrip((prev) => {
+      if (!prev) return prev;
+      const updatedRequests = (prev.settlementRequests || []).map((req) =>
+        req.settlementId === settlementId ? { ...req, status: 'settled' } : req
+      );
+      const updated = { ...prev, settlementRequests: updatedRequests };
+      cacheTripLocally(updated);
+      return updated;
     });
+
+    if (socketRef.current && socketRef.current.connected) {
+      socketRef.current.emit('confirm_settlement', {
+        tripId: trip.tripId,
+        settlementId,
+      });
+    }
   };
 
   const rejectSettlement = (settlementId) => {
-    if (!trip?.tripId || !socketRef.current) return;
-    socketRef.current.emit('reject_settlement', {
-      tripId: trip.tripId,
-      settlementId,
+    if (!trip?.tripId) return;
+
+    // Optimistic status removal
+    setTrip((prev) => {
+      if (!prev) return prev;
+      const updatedRequests = (prev.settlementRequests || []).filter(
+        (req) => req.settlementId !== settlementId
+      );
+      const updated = { ...prev, settlementRequests: updatedRequests };
+      cacheTripLocally(updated);
+      return updated;
     });
-  };
 
-  // 4. Sync Function: Empties localStorage queue to server
-  const syncOfflineQueue = async (activeTripId) => {
-    const queue = getOfflineQueue();
-    if (!queue || queue.length === 0) return;
-
-    setIsSyncing(true);
-
-    for (const item of queue) {
-      if (socketRef.current && socketRef.current.connected) {
-        socketRef.current.emit('add_expense', {
-          tripId: item.tripId || activeTripId,
-          expense: item.expense,
-        });
-      }
+    if (socketRef.current && socketRef.current.connected) {
+      socketRef.current.emit('reject_settlement', {
+        tripId: trip.tripId,
+        settlementId,
+      });
     }
-
-    clearOfflineQueue();
-    setIsSyncing(false);
   };
 
   // 5. Add Expense Function
