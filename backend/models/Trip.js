@@ -15,6 +15,19 @@ const participantSchema = new mongoose.Schema({
   },
 });
 
+const settlementRequestSchema = new mongoose.Schema({
+  settlementId: { type: String, required: true },
+  from: { type: String, required: true },
+  to: { type: String, required: true },
+  amount: { type: Number, required: true },
+  status: { 
+    type: String, 
+    enum: ['pending', 'confirmed', 'rejected'], 
+    default: 'pending' 
+  },
+  createdAt: { type: Date, default: Date.now },
+});
+
 const tripSchema = new mongoose.Schema(
   {
     // trip code
@@ -31,6 +44,7 @@ const tripSchema = new mongoose.Schema(
     },
     participants: [participantSchema],
     expenses: [expenseSchema],
+    settlementRequests: [settlementRequestSchema],
     // State flag tracking whether the trip is actively running or finalized
     isSettled: {
       type: Boolean,

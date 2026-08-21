@@ -121,6 +121,102 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Event 3: Initiate Payment Handshake (Debtor -> Creditor)
+  socket.on('initiate_settlement', async ({ tripId, settlementId, from, to, amount }) => {
+    try {
+      const trip = await Trip.findOne({ tripId });
+      if (!trip) return socket.emit('error', { message: 'Trip not found' });
+
+      // Remove existing pending request between these users if any
+      trip.settlementRequests = trip.settlementRequests.filter(
+        (s) => !(s.from === from && s.to === to && s.status === 'pending')
+      );
+
+      trip.settlementRequests.push({
+        settlementId,
+        from,
+        to,
+        amount,
+        status: 'pending',
+      });
+
+      await trip.save();
+
+      // Broadcast updated requests to everyone in the room
+      io.to(tripId).emit('settlement_requests_updated', {
+        settlementRequests: trip.settlementRequests,
+      });
+    } catch (err) {
+      console.error('Error initiating settlement:', err.message);
+      socket.emit('error', { message: 'Failed to initiate settlement' });
+    }
+  });
+
+  // Event 4: Confirm Payment Handshake (Creditor Confirms)
+  socket.on('confirm_settlement', async ({ tripId, settlementId }) => {
+    try {
+      const trip = await Trip.findOne({ tripId });
+      if (!trip) return socket.emit('error', { message: 'Trip not found' });
+
+      const reqIndex = trip.settlementRequests.findIndex((s) => s.settlementId === settlementId);
+      if (reqIndex === -1) return socket.emit('error', { message: 'Settlement request not found' });
+
+      const request = trip.settlementRequests[reqIndex];
+      request.status = 'confirmed';
+
+      // 🏆 Option A: Log an automated settlement expense
+      const settlementExpense = {
+        expenseId: `settle_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        description: `Payment Settlement: ${request.from} ➔ ${request.to}`,
+        amount: request.amount,
+        paidBy: request.from,
+        splitAmong: [request.to], // Fully credits request.to and debits request.from
+        isSettlement: true,
+        createdAt: new Date(),
+      };
+
+      trip.expenses.push(settlementExpense);
+      await trip.save();
+
+      // Recalculate minimum settlements matrix
+      const updatedSettlements = calculateMinSettlements(trip.participants, trip.expenses);
+
+      // Broadcast new state to all room clients
+      io.to(tripId).emit('settlement_confirmed_sync', {
+        settlementId,
+        allExpenses: trip.expenses,
+        settlements: updatedSettlements,
+        settlementRequests: trip.settlementRequests,
+      });
+    } catch (err) {
+      console.error('Error confirming settlement:', err.message);
+      socket.emit('error', { message: 'Failed to confirm settlement' });
+    }
+  });
+
+  // Event 5: Reject Payment Handshake (Creditor Rejects)
+  socket.on('reject_settlement', async ({ tripId, settlementId }) => {
+    try {
+      const trip = await Trip.findOne({ tripId });
+      if (!trip) return socket.emit('error', { message: 'Trip not found' });
+
+      const reqIndex = trip.settlementRequests.findIndex((s) => s.settlementId === settlementId);
+      if (reqIndex !== -1) {
+        trip.settlementRequests[reqIndex].status = 'rejected';
+        await trip.save();
+      }
+
+      io.to(tripId).emit('settlement_rejected_sync', {
+        settlementId,
+        rejectedRequest: trip.settlementRequests[reqIndex],
+        settlementRequests: trip.settlementRequests,
+      });
+    } catch (err) {
+      console.error('Error rejecting settlement:', err.message);
+      socket.emit('error', { message: 'Failed to reject settlement' });
+    }
+  });
+
   // Event 3: Client Disconnect
   socket.on('disconnect', () => {
     console.log(`🔌 Client Disconnected: ${socket.id}`);

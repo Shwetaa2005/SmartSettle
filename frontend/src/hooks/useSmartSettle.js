@@ -16,7 +16,7 @@ export function useSmartSettle(initialTripData) {
   const [isSyncing, setIsSyncing] = useState(false);
   const socketRef = useRef(null);
 
-  // 1. Synchronize hook state whenever parent initialTripData changes (Fixes initial null issue)
+  // 1. Synchronize hook state whenever parent initialTripData changes
   useEffect(() => {
     if (initialTripData) {
       setTrip(initialTripData);
@@ -36,7 +36,7 @@ export function useSmartSettle(initialTripData) {
       userName: trip.hostName || trip.name || 'User' 
     });
 
-    // Listen for real-time expense updates broadcasted by server
+    // 1. Listen for real-time expense updates
     socket.on('expense_updated', ({ allExpenses, settlements: newSettlements }) => {
       setTrip((prev) => {
         if (!prev) return prev;
@@ -52,6 +52,37 @@ export function useSmartSettle(initialTripData) {
       setTrip((prev) => {
         if (!prev) return prev;
         const updated = { ...prev, participants };
+        cacheTripLocally(updated);
+        return updated;
+      });
+    });
+
+    // 3. Listen for settlement handshake request updates
+    socket.on('settlement_requests_updated', ({ settlementRequests }) => {
+      setTrip((prev) => {
+        if (!prev) return prev;
+        const updated = { ...prev, settlementRequests };
+        cacheTripLocally(updated);
+        return updated;
+      });
+    });
+
+    // 4. Listen for confirmed payment settlement sync
+    socket.on('settlement_confirmed_sync', ({ allExpenses, settlements: newSettlements, settlementRequests }) => {
+      setTrip((prev) => {
+        if (!prev) return prev;
+        const updated = { ...prev, expenses: allExpenses, settlementRequests };
+        cacheTripLocally(updated);
+        return updated;
+      });
+      if (newSettlements) setSettlements(newSettlements);
+    });
+
+    // 5. Listen for rejected settlement sync
+    socket.on('settlement_rejected_sync', ({ settlementRequests }) => {
+      setTrip((prev) => {
+        if (!prev) return prev;
+        const updated = { ...prev, settlementRequests };
         cacheTripLocally(updated);
         return updated;
       });
@@ -76,14 +107,50 @@ export function useSmartSettle(initialTripData) {
       syncOfflineQueue(trip.tripId);
     }
 
+    // Comprehensive Cleanup
     return () => {
+      socket.off('expense_updated');
+      socket.off('participants_updated');
+      socket.off('settlement_requests_updated');
+      socket.off('settlement_confirmed_sync');
+      socket.off('settlement_rejected_sync');
       socket.disconnect();
+
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
   }, [trip?.tripId]);
 
-  // 3. Sync Function: Empties localStorage queue to server
+  // 3. Handshake Trigger Functions (Placed safely outside useEffect)
+  const initiateSettlement = (from, to, amount) => {
+    if (!trip?.tripId || !socketRef.current) return;
+    const settlementId = `req_${Date.now()}`;
+    socketRef.current.emit('initiate_settlement', {
+      tripId: trip.tripId,
+      settlementId,
+      from,
+      to,
+      amount,
+    });
+  };
+
+  const confirmSettlement = (settlementId) => {
+    if (!trip?.tripId || !socketRef.current) return;
+    socketRef.current.emit('confirm_settlement', {
+      tripId: trip.tripId,
+      settlementId,
+    });
+  };
+
+  const rejectSettlement = (settlementId) => {
+    if (!trip?.tripId || !socketRef.current) return;
+    socketRef.current.emit('reject_settlement', {
+      tripId: trip.tripId,
+      settlementId,
+    });
+  };
+
+  // 4. Sync Function: Empties localStorage queue to server
   const syncOfflineQueue = async (activeTripId) => {
     const queue = getOfflineQueue();
     if (!queue || queue.length === 0) return;
@@ -103,12 +170,11 @@ export function useSmartSettle(initialTripData) {
     setIsSyncing(false);
   };
 
-  // 4. Add Expense Function (Optimistic Update + Socket/Offline routing)
+  // 5. Add Expense Function
   const addExpense = (expense) => {
     const targetTripId = trip?.tripId;
     if (!targetTripId) return;
 
-    // Optimistically update local React UI immediately
     setTrip((prev) => {
       const updatedExpenses = [...(prev?.expenses || []), expense];
       const updatedTrip = { ...prev, expenses: updatedExpenses };
@@ -116,7 +182,6 @@ export function useSmartSettle(initialTripData) {
       return updatedTrip;
     });
 
-    // Route to Socket or Offline Queue
     if (isOnline && socketRef.current && socketRef.current.connected) {
       socketRef.current.emit('add_expense', {
         tripId: targetTripId,
@@ -131,6 +196,9 @@ export function useSmartSettle(initialTripData) {
   return {
     trip,
     settlements,
+    initiateSettlement,
+    confirmSettlement,
+    rejectSettlement,
     isOnline,
     isSyncing,
     addExpense,

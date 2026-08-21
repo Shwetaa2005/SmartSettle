@@ -35,6 +35,11 @@ const expenseSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
+    // Inside backend/models/Expense.js
+    isSettlement: {
+    type: Boolean,
+    default: false,
+    }
   }
 );
 
