@@ -129,7 +129,7 @@ io.on('connection', (socket) => {
 
       // Remove existing pending request between these users if any
       trip.settlementRequests = trip.settlementRequests.filter(
-        (s) => !(s.from === from && s.to === to && s.status === 'pending')
+        (s) => !(s.from === from && s.to === to && s.status === 'awaiting_confirmation')
       );
 
       trip.settlementRequests.push({
@@ -137,7 +137,7 @@ io.on('connection', (socket) => {
         from,
         to,
         amount,
-        status: 'pending',
+        status: 'awaiting_confirmation',
       });
 
       await trip.save();

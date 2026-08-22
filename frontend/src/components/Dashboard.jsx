@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { WifiOff, Plus, Users, Receipt, Share2, RefreshCw, ArrowUpRight, CheckCircle2, AlertCircle } from 'lucide-react';
+import { WifiOff, Plus, Users, Receipt, Share2, RefreshCw, ArrowUpRight, AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
 import ExpenseModal from './ExpenseModal';
 
 export default function Dashboard({ 
@@ -8,6 +8,8 @@ export default function Dashboard({
   isOnline = true, 
   isSyncing = false, 
   onAddExpense, 
+  confirmSettlement,
+  rejectSettlement,
   onNavigateToSettlement,
   onLeaveTrip,
   currentUser = ''
@@ -115,24 +117,52 @@ export default function Dashboard({
           </div>
         </div>
 
-        {/* Pending Settlement Requests Notification Banner */}
-        {pendingRequests.filter(r => r.status === 'awaiting_confirmation').length > 0 && (
-          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3.5 flex items-center justify-between shadow-sm">
-            <div className="flex items-center space-x-2.5">
-              <AlertCircle size={18} className="text-amber-600 flex-shrink-0" />
-              <div>
-                <p className="text-xs font-bold text-amber-900">Settlements Awaiting Confirmation</p>
-                <p className="text-[11px] text-amber-700">You have pending payment handshakes to verify.</p>
+        {/* --- SETTLEMENT HANDSHAKE ACTION CARDS --- */}
+        {pendingRequests.filter(req => req.status === 'awaiting_confirmation').map((req) => {
+          const isRecipient = req.to?.trim().toLowerCase() === activeUser?.trim().toLowerCase();
+          const isPayer = req.from?.trim().toLowerCase() === activeUser?.trim().toLowerCase();
+
+          if (!isRecipient && !isPayer) return null;
+
+          return (
+            <div key={req.settlementId} className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-4 shadow-md space-y-3">
+              <div className="flex items-start justify-between">
+                <div>
+                  <span className="text-[10px] font-black uppercase bg-amber-200 text-amber-900 px-2 py-0.5 rounded-md">
+                    Payment Verification Needed
+                  </span>
+                  <p className="text-sm font-bold text-slate-800 mt-2">
+                    {isPayer ? `You paid ${req.to}` : `${req.from} marked payment to you`}
+                  </p>
+                  <p className="text-lg font-black text-amber-950">₹{parseFloat(req.amount).toFixed(2)}</p>
+                </div>
               </div>
+
+              {isRecipient ? (
+                <div className="flex space-x-2 pt-1">
+                  <button
+                    onClick={() => confirmSettlement && confirmSettlement(req.settlementId)}
+                    className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow flex items-center justify-center space-x-1 transition-all active:scale-[0.98]"
+                  >
+                    <CheckCircle2 size={16} />
+                    <span>Confirm Received</span>
+                  </button>
+                  <button
+                    onClick={() => rejectSettlement && rejectSettlement(req.settlementId)}
+                    className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow flex items-center justify-center space-x-1 transition-all active:scale-[0.98]"
+                  >
+                    <XCircle size={16} />
+                    <span>Reject</span>
+                  </button>
+                </div>
+              ) : (
+                <p className="text-xs text-amber-800 bg-amber-100/60 p-2 rounded-lg italic">
+                  Waiting for <strong>{req.to}</strong> to confirm receipt on their device...
+                </p>
+              )}
             </div>
-            <button
-              onClick={onNavigateToSettlement}
-              className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl transition-all"
-            >
-              Review
-            </button>
-          </div>
-        )}
+          );
+        })}
 
         {/* Participants Banner */}
         <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80 space-y-3">

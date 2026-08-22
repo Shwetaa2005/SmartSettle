@@ -22,8 +22,8 @@ const settlementRequestSchema = new mongoose.Schema({
   amount: { type: Number, required: true },
   status: { 
     type: String, 
-    enum: ['pending', 'confirmed', 'rejected'], 
-    default: 'pending' 
+    enum: ['awaiting_confirmation', 'confirmed', 'rejected'], 
+    default: 'awaiting_confirmation' 
   },
   createdAt: { type: Date, default: Date.now },
 });

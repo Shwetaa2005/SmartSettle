@@ -11,7 +11,17 @@ function App() {
   const [initialTrip, setInitialTrip] = useState(null);
   const [currentView, setCurrentView] = useState('onboarding'); // 'onboarding' | 'dashboard' | 'settlement'
 
-  const { trip, settlements, isOnline, isSyncing, addExpense } = useSmartSettle(initialTrip);
+  // EXTRACT the new settlement functions from the hook
+  const { 
+    trip, 
+    settlements, 
+    isOnline, 
+    isSyncing, 
+    addExpense,
+    initiateSettlement, // Assuming your hook exports this for the Settlement view
+    confirmSettlement,  // Extracted
+    rejectSettlement    // Extracted
+  } = useSmartSettle(initialTrip);
 
   const handleCreateTrip = async (tripData) => {
     try {
@@ -73,6 +83,9 @@ function App() {
   };
 
   const activeTrip = trip || initialTrip;
+  
+  // Explicitly define the current user for precise matching
+  const currentUser = activeTrip?.hostName || activeTrip?.name;
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -86,7 +99,10 @@ function App() {
           settlements={settlements}
           isOnline={isOnline}
           isSyncing={isSyncing}
+          currentUser={currentUser} // Pass currentUser to Dashboard
           onAddExpense={addExpense}
+          confirmSettlement={confirmSettlement} // Pass down function
+          rejectSettlement={rejectSettlement}   // Pass down function
           onNavigateToSettlement={() => setCurrentView('settlement')}
           onLeaveTrip={() => {
             setInitialTrip(null);
@@ -99,7 +115,10 @@ function App() {
         <Settlement
           trip={activeTrip}
           settlements={settlements}
-          currentUser={activeTrip.hostName || activeTrip.name}
+          currentUser={currentUser}
+          initiateSettlement={initiateSettlement} // Pass to Settlement for initiating
+          confirmSettlement={confirmSettlement}   // Useful if banners show in Settlement too
+          rejectSettlement={rejectSettlement}     // Useful if banners show in Settlement too
           onBack={() => setCurrentView('dashboard')}
         />
       )}

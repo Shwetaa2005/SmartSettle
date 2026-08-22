@@ -16,12 +16,12 @@ export function useSmartSettle(initialTripData) {
   const [isSyncing, setIsSyncing] = useState(false);
   const socketRef = useRef(null);
 
-  // 1. Synchronize hook state whenever parent initialTripData changes
+  // 1. Safe initial hydration (only runs when switching trips, prevents wiping real-time state)
   useEffect(() => {
-    if (initialTripData) {
+    if (initialTripData?.tripId && (!trip?.tripId || trip.tripId !== initialTripData.tripId)) {
       setTrip(initialTripData);
     }
-  }, [initialTripData]);
+  }, [initialTripData, trip?.tripId]);
 
   // 2. Offline Queue Sync Handler
   const syncOfflineQueue = useCallback(async (activeTripId) => {
@@ -141,7 +141,14 @@ export function useSmartSettle(initialTripData) {
   const initiateSettlement = (from, to, amount) => {
     if (!trip?.tripId) return;
     const settlementId = `req_${Date.now()}`;
-    const payload = { tripId: trip.tripId, settlementId, from, to, amount, status: 'awaiting_confirmation' };
+    const payload = { 
+      tripId: trip.tripId, 
+      settlementId, 
+      from, 
+      to, 
+      amount, 
+      status: 'awaiting_confirmation' 
+    };
 
     // Optimistic UI update
     setTrip((prev) => {
@@ -164,7 +171,7 @@ export function useSmartSettle(initialTripData) {
     setTrip((prev) => {
       if (!prev) return prev;
       const updatedRequests = (prev.settlementRequests || []).map((req) =>
-        req.settlementId === settlementId ? { ...req, status: 'settled' } : req
+        req.settlementId === settlementId ? { ...req, status: 'confirmed' } : req
       );
       const updated = { ...prev, settlementRequests: updatedRequests };
       cacheTripLocally(updated);
@@ -182,11 +189,11 @@ export function useSmartSettle(initialTripData) {
   const rejectSettlement = (settlementId) => {
     if (!trip?.tripId) return;
 
-    // Optimistic status removal
+    // Optimistic status update
     setTrip((prev) => {
       if (!prev) return prev;
-      const updatedRequests = (prev.settlementRequests || []).filter(
-        (req) => req.settlementId !== settlementId
+      const updatedRequests = (prev.settlementRequests || []).map((req) =>
+        req.settlementId === settlementId ? { ...req, status: 'rejected' } : req
       );
       const updated = { ...prev, settlementRequests: updatedRequests };
       cacheTripLocally(updated);
