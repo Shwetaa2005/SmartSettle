@@ -3,6 +3,7 @@ import Onboarding from './components/Onboarding';
 import Dashboard from './components/Dashboard';
 import Settlement from './components/Settlement';
 import { useSmartSettle } from './hooks/useSmartSettle';
+import { PendingSettlementModal } from './PendingSettlementModal';
 
 // Dynamic API URL: Uses VITE_BACKEND_URL when deployed, falls back to localhost for dev
 const API_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
@@ -11,16 +12,16 @@ function App() {
   const [initialTrip, setInitialTrip] = useState(null);
   const [currentView, setCurrentView] = useState('onboarding'); // 'onboarding' | 'dashboard' | 'settlement'
 
-  // EXTRACT the new settlement functions from the hook
+  // EXTRACT settlement functions from the hook
   const { 
     trip, 
     settlements, 
     isOnline, 
     isSyncing, 
     addExpense,
-    initiateSettlement, // Assuming your hook exports this for the Settlement view
-    confirmSettlement,  // Extracted
-    rejectSettlement    // Extracted
+    initiateSettlement,
+    confirmSettlement,
+    rejectSettlement
   } = useSmartSettle(initialTrip);
 
   const handleCreateTrip = async (tripData) => {
@@ -89,6 +90,16 @@ function App() {
 
   return (
     <div className="min-h-screen bg-slate-50">
+      {/* 🔴 Real-time Payment Confirmation Modal rendered globally */}
+      {activeTrip && (
+        <PendingSettlementModal 
+          trip={activeTrip}
+          currentUser={currentUser}
+          confirmSettlement={confirmSettlement}
+          rejectSettlement={rejectSettlement}
+        />
+      )}
+
       {currentView === 'onboarding' && (
         <Onboarding onCreateTrip={handleCreateTrip} onJoinTrip={handleJoinTrip} />
       )}
@@ -99,10 +110,10 @@ function App() {
           settlements={settlements}
           isOnline={isOnline}
           isSyncing={isSyncing}
-          currentUser={currentUser} // Pass currentUser to Dashboard
+          currentUser={currentUser}
           onAddExpense={addExpense}
-          confirmSettlement={confirmSettlement} // Pass down function
-          rejectSettlement={rejectSettlement}   // Pass down function
+          confirmSettlement={confirmSettlement}
+          rejectSettlement={rejectSettlement}
           onNavigateToSettlement={() => setCurrentView('settlement')}
           onLeaveTrip={() => {
             setInitialTrip(null);
@@ -116,9 +127,9 @@ function App() {
           trip={activeTrip}
           settlements={settlements}
           currentUser={currentUser}
-          initiateSettlement={initiateSettlement} // Pass to Settlement for initiating
-          confirmSettlement={confirmSettlement}   // Useful if banners show in Settlement too
-          rejectSettlement={rejectSettlement}     // Useful if banners show in Settlement too
+          initiateSettlement={initiateSettlement}
+          confirmSettlement={confirmSettlement}
+          rejectSettlement={rejectSettlement}
           onBack={() => setCurrentView('dashboard')}
         />
       )}

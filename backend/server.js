@@ -71,20 +71,30 @@ io.on('connection', (socket) => {
 
   // Event 1: User joins a specific trip room
   socket.on('join_trip', async ({ tripId, userName }) => {
+    if (!tripId || !userName) return;
+
     socket.join(tripId);
     console.log(`👤 User '${userName}' (${socket.id}) joined Room: [${tripId}]`);
 
     try {
-      // Fetch fresh trip data to get the updated participants array
-      const trip = await Trip.findOne({ tripId });
+    // 1. Add the new user to participants array if they aren't in it already
+      const updatedTrip = await Trip.findOneAndUpdate(
+        { tripId, participants: { $ne: userName } }, // Only match if user is NOT in array
+        { $push: { participants: userName } },      // Push new user name
+        { new: true }                               // Return updated document
+      );
+
+    // 2. Fetch current trip if user was already present (findOneAndUpdate returns null if condition fails)
+      const trip = updatedTrip || (await Trip.findOne({ tripId }));
+
       if (trip) {
-        // Broadcast updated participants to EVERYONE in the room (including the host)
+      // 3. Broadcast updated participants to EVERYONE in the room (including User A)
         io.to(tripId).emit('participants_updated', {
           participants: trip.participants,
         });
       }
     } catch (err) {
-      console.error('Error fetching participants on join:', err.message);
+      console.error('Error updating/fetching participants on join:', err.message);
     }
   });
 
@@ -127,7 +137,7 @@ io.on('connection', (socket) => {
       const trip = await Trip.findOne({ tripId });
       if (!trip) return socket.emit('error', { message: 'Trip not found' });
 
-      // Remove existing pending request between these users if any
+    // Remove existing pending request between these users if any
       trip.settlementRequests = trip.settlementRequests.filter(
         (s) => !(s.from === from && s.to === to && s.status === 'awaiting_confirmation')
       );
@@ -142,7 +152,7 @@ io.on('connection', (socket) => {
 
       await trip.save();
 
-      // Broadcast updated requests to everyone in the room
+    // Broadcast updated requests to everyone in the room
       io.to(tripId).emit('settlement_requests_updated', {
         settlementRequests: trip.settlementRequests,
       });
@@ -152,7 +162,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Event 4: Confirm Payment Handshake (Creditor Confirms)
+// Event 4: Confirm Payment Handshake (Creditor Confirms)
   socket.on('confirm_settlement', async ({ tripId, settlementId }) => {
     try {
       const trip = await Trip.findOne({ tripId });
@@ -161,10 +171,15 @@ io.on('connection', (socket) => {
       const reqIndex = trip.settlementRequests.findIndex((s) => s.settlementId === settlementId);
       if (reqIndex === -1) return socket.emit('error', { message: 'Settlement request not found' });
 
-      const request = trip.settlementRequests[reqIndex];
-      request.status = 'confirmed';
+    // Mark as confirmed
+      trip.settlementRequests[reqIndex].status = 'confirmed';
+    
+    // Explicitly notify Mongoose that the nested array changed
+      trip.markModified('settlementRequests');
 
-      // 🏆 Option A: Log an automated settlement expense
+      const request = trip.settlementRequests[reqIndex];
+
+    // Log an automated settlement expense
       const settlementExpense = {
         expenseId: `settle_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
         description: `Payment Settlement: ${request.from} ➔ ${request.to}`,
@@ -178,10 +193,10 @@ io.on('connection', (socket) => {
       trip.expenses.push(settlementExpense);
       await trip.save();
 
-      // Recalculate minimum settlements matrix
+    // Recalculate minimum settlements matrix
       const updatedSettlements = calculateMinSettlements(trip.participants, trip.expenses);
 
-      // Broadcast new state to all room clients
+    // Broadcast new state to all room clients
       io.to(tripId).emit('settlement_confirmed_sync', {
         settlementId,
         allExpenses: trip.expenses,
@@ -194,7 +209,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Event 5: Reject Payment Handshake (Creditor Rejects)
+// Event 5: Reject Payment Handshake (Creditor Rejects)
   socket.on('reject_settlement', async ({ tripId, settlementId }) => {
     try {
       const trip = await Trip.findOne({ tripId });
@@ -203,12 +218,16 @@ io.on('connection', (socket) => {
       const reqIndex = trip.settlementRequests.findIndex((s) => s.settlementId === settlementId);
       if (reqIndex !== -1) {
         trip.settlementRequests[reqIndex].status = 'rejected';
+      
+      // Explicitly notify Mongoose that the nested array changed
+        trip.markModified('settlementRequests');
+      
         await trip.save();
       }
 
       io.to(tripId).emit('settlement_rejected_sync', {
         settlementId,
-        rejectedRequest: trip.settlementRequests[reqIndex],
+        rejectedRequest: reqIndex !== -1 ? trip.settlementRequests[reqIndex] : null,
         settlementRequests: trip.settlementRequests,
       });
     } catch (err) {
@@ -217,11 +236,10 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Event 3: Client Disconnect
+// Client Disconnect
   socket.on('disconnect', () => {
     console.log(`🔌 Client Disconnected: ${socket.id}`);
   });
-});
 
 // MongoDB Connection & Server Launch
 const connectDB = async () => {
