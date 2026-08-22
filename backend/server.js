@@ -241,6 +241,8 @@ io.on('connection', (socket) => {
     console.log(`🔌 Client Disconnected: ${socket.id}`);
   });
 
+}); 
+
 // MongoDB Connection & Server Launch
 const connectDB = async () => {
   try {
