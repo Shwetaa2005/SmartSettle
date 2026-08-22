@@ -3,7 +3,7 @@ import Onboarding from './components/Onboarding';
 import Dashboard from './components/Dashboard';
 import Settlement from './components/Settlement';
 import { useSmartSettle } from './hooks/useSmartSettle';
-import { PendingSettlementModal } from './PendingSettlementModal';
+import { PendingSettlementModal } from './components/PendingSettlementModal';
 
 // Dynamic API URL: Uses VITE_BACKEND_URL when deployed, falls back to localhost for dev
 const API_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
