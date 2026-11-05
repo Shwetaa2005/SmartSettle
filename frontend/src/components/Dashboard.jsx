@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { WifiOff, Plus, Users, Receipt, Share2, RefreshCw, ArrowUpRight, AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
+import { WifiOff, Plus, Users, Receipt, Share2, RefreshCw, ArrowUpRight, AlertCircle, CheckCircle2, XCircle, User } from 'lucide-react';
 import ExpenseModal from './ExpenseModal';
 
 export default function Dashboard({ 
@@ -16,7 +16,7 @@ export default function Dashboard({
 }) {
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  const activeUser = currentUser || trip?.hostName || trip?.name || 'User';
+  const activeUser = currentUser || trip?.currentUser || trip?.name || trip?.hostName || 'User';
   const participantsList = trip?.participants || [];
   const expensesList = trip?.expenses || [];
   const pendingRequests = trip?.settlementRequests || [];
@@ -72,7 +72,7 @@ export default function Dashboard({
       )}
 
       {/* Header */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-30 px-4 py-4">
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-30 px-4 py-3.5">
         <div className="max-w-md mx-auto flex items-center justify-between">
           <div>
             <div className="flex items-center space-x-2">
@@ -82,12 +82,25 @@ export default function Dashboard({
             <p className="text-xs text-slate-400 font-mono">Code: <span className="font-bold text-indigo-600">{trip?.tripId || '---'}</span></p>
           </div>
 
-          <button
-            onClick={onLeaveTrip}
-            className="text-xs text-slate-400 hover:text-rose-500 font-semibold px-3 py-1.5 rounded-lg border border-slate-200 transition-colors"
-          >
-            Exit Trip
-          </button>
+          <div className="flex items-center space-x-2">
+            {/* Current Logged-in User Badge */}
+            <div className="flex items-center space-x-1.5 bg-indigo-50 border border-indigo-200/80 px-2.5 py-1.5 rounded-xl shadow-xs">
+              <div className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px] font-black uppercase shadow-xs">
+                {activeUser.charAt(0)}
+              </div>
+              <div className="flex flex-col text-left">
+                <span className="text-[9px] font-bold uppercase text-indigo-400 leading-none">You</span>
+                <span className="text-xs font-black text-indigo-950 leading-tight max-w-[70px] truncate">{activeUser}</span>
+              </div>
+            </div>
+
+            <button
+              onClick={onLeaveTrip}
+              className="text-xs text-slate-400 hover:text-rose-500 font-semibold px-2.5 py-1.5 rounded-xl border border-slate-200 hover:border-rose-200 hover:bg-rose-50 transition-colors"
+            >
+              Exit Trip
+            </button>
+          </div>
         </div>
       </header>
 
@@ -180,11 +193,27 @@ export default function Dashboard({
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {participantsList.map((p, idx) => (
-              <span key={p.name || idx} className="inline-flex items-center px-3 py-1 bg-indigo-50 text-indigo-700 text-xs font-bold rounded-xl border border-indigo-100">
-                {p.name} {p.upiId ? '⚡' : '💵'}
-              </span>
-            ))}
+            {participantsList.map((p, idx) => {
+              const isCurrentUser = p.name?.trim().toLowerCase() === activeUser?.trim().toLowerCase();
+              return (
+                <span
+                  key={p.name || idx}
+                  className={`inline-flex items-center px-3 py-1 text-xs font-bold rounded-xl border transition-all ${
+                    isCurrentUser
+                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                      : 'bg-indigo-50 text-indigo-700 border-indigo-100'
+                  }`}
+                >
+                  <span>{p.name}</span>
+                  {isCurrentUser && (
+                    <span className="ml-1 text-[10px] font-semibold bg-indigo-500/80 px-1 py-0.2 rounded-md">
+                      You
+                    </span>
+                  )}
+                  <span className="ml-1.5">{p.upiId ? '⚡' : '💵'}</span>
+                </span>
+              );
+            })}
           </div>
         </div>
 

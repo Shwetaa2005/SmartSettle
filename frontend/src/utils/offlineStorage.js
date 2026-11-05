@@ -1,15 +1,21 @@
 const QUEUE_KEY = 'smartsettle_offline_queue';
 const TRIP_CACHE_KEY = 'smartsettle_trip_cache';
 
+// Clear any legacy localStorage entry from older versions to prevent leakage
+try {
+  localStorage.removeItem(TRIP_CACHE_KEY);
+  localStorage.removeItem(QUEUE_KEY);
+} catch (e) {}
+
 /**
  * Get all queued offline expenses
  */
 export const getOfflineQueue = () => {
   try {
-    const raw = localStorage.getItem(QUEUE_KEY);
+    const raw = sessionStorage.getItem(QUEUE_KEY);
     return raw ? JSON.parse(raw) : [];
   } catch (err) {
-    console.error('Error reading offline queue from localStorage:', err);
+    console.error('Error reading offline queue from sessionStorage:', err);
     return [];
   }
 };
@@ -22,7 +28,7 @@ export const queueOfflineExpense = (tripId, expense) => {
     const queue = getOfflineQueue();
     const newItem = { tripId, expense, queuedAt: new Date().toISOString() };
     queue.push(newItem);
-    localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+    sessionStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
     return queue;
   } catch (err) {
     console.error('Error queuing offline expense:', err);
@@ -34,28 +40,41 @@ export const queueOfflineExpense = (tripId, expense) => {
  * Clear the queue after successful server sync
  */
 export const clearOfflineQueue = () => {
-  localStorage.removeItem(QUEUE_KEY);
+  sessionStorage.removeItem(QUEUE_KEY);
 };
 
 /**
- * Cache current active trip locally for instant offline loading
+ * Cache current active trip in session for instant offline loading and tab isolation
  */
 export const cacheTripLocally = (tripData) => {
   try {
-    localStorage.setItem(TRIP_CACHE_KEY, JSON.stringify(tripData));
+    sessionStorage.setItem(TRIP_CACHE_KEY, JSON.stringify(tripData));
   } catch (err) {
-    console.error('Error caching trip locally:', err);
+    console.error('Error caching trip in sessionStorage:', err);
   }
 };
 
 /**
- * Retrieve cached trip when offline
+ * Retrieve cached trip from session
  */
 export const getCachedTrip = () => {
   try {
-    const raw = localStorage.getItem(TRIP_CACHE_KEY);
+    const raw = sessionStorage.getItem(TRIP_CACHE_KEY);
     return raw ? JSON.parse(raw) : null;
   } catch (err) {
     return null;
+  }
+};
+
+/**
+ * Clear cached trip from session (e.g. when exiting trip)
+ */
+export const clearCachedTrip = () => {
+  try {
+    sessionStorage.removeItem(TRIP_CACHE_KEY);
+    // Also clean up any legacy localStorage entry
+    localStorage.removeItem(TRIP_CACHE_KEY);
+  } catch (err) {
+    console.error('Error clearing trip session cache:', err);
   }
 };

@@ -53,6 +53,9 @@ const io = new Server(server, {
   },
 });
 
+// Attach io instance to express app so routes/controllers can emit events
+app.set('io', io);
+
 // Routes
 app.use('/api/trips', tripRoutes);
 
@@ -70,25 +73,30 @@ io.on('connection', (socket) => {
   console.log(`⚡ New WebSocket Client Connected: ${socket.id}`);
 
   // Event 1: User joins a specific trip room
-  socket.on('join_trip', async ({ tripId, userName }) => {
+  socket.on('join_trip', async ({ tripId, userName, upiId }) => {
     if (!tripId || !userName) return;
 
     socket.join(tripId);
     console.log(`👤 User '${userName}' (${socket.id}) joined Room: [${tripId}]`);
 
     try {
-    // 1. Add the new user to participants array if they aren't in it already
-      const updatedTrip = await Trip.findOneAndUpdate(
-        { tripId, participants: { $ne: userName } }, // Only match if user is NOT in array
-        { $push: { participants: userName } },      // Push new user name
-        { new: true }                               // Return updated document
-      );
-
-    // 2. Fetch current trip if user was already present (findOneAndUpdate returns null if condition fails)
-      const trip = updatedTrip || (await Trip.findOne({ tripId }));
+      const trip = await Trip.findOne({ tripId });
 
       if (trip) {
-      // 3. Broadcast updated participants to EVERYONE in the room (including User A)
+        // Check if participant already exists by name (case-insensitive)
+        const participantExists = trip.participants.some(
+          (p) => p.name?.trim().toLowerCase() === userName.trim().toLowerCase()
+        );
+
+        if (!participantExists) {
+          trip.participants.push({
+            name: userName.trim(),
+            upiId: upiId || null,
+          });
+          await trip.save();
+        }
+
+        // Broadcast updated participants to EVERYONE in the room (including User A)
         io.to(tripId).emit('participants_updated', {
           participants: trip.participants,
         });
@@ -139,7 +147,9 @@ io.on('connection', (socket) => {
 
     // Remove existing pending request between these users if any
       trip.settlementRequests = trip.settlementRequests.filter(
-        (s) => !(s.from === from && s.to === to && s.status === 'awaiting_confirmation')
+        (s) => !(s.from?.trim().toLowerCase() === from?.trim().toLowerCase() &&
+                 s.to?.trim().toLowerCase() === to?.trim().toLowerCase() &&
+                 s.status === 'awaiting_confirmation')
       );
 
       trip.settlementRequests.push({

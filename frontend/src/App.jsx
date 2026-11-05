@@ -4,13 +4,14 @@ import Dashboard from './components/Dashboard';
 import Settlement from './components/Settlement';
 import { useSmartSettle } from './hooks/useSmartSettle';
 import { PendingSettlementModal } from './components/PendingSettlementModal';
+import { getCachedTrip, cacheTripLocally, clearCachedTrip } from './utils/offlineStorage';
 
 // Dynamic API URL: Uses VITE_BACKEND_URL when deployed, falls back to localhost for dev
 const API_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
 
 function App() {
-  const [initialTrip, setInitialTrip] = useState(null);
-  const [currentView, setCurrentView] = useState('onboarding'); // 'onboarding' | 'dashboard' | 'settlement'
+  const [initialTrip, setInitialTrip] = useState(() => getCachedTrip() || null);
+  const [currentView, setCurrentView] = useState(() => (getCachedTrip() ? 'dashboard' : 'onboarding'));
 
   // EXTRACT settlement functions from the hook
   const { 
@@ -36,10 +37,13 @@ function App() {
       if (data.success && data.trip) {
         const safeTrip = {
           ...data.trip,
-          hostName: tripData.hostName,
+          currentUser: tripData.hostName?.trim(),
+          hostName: tripData.hostName?.trim(),
+          hostUpiId: tripData.hostUpiId,
           participants: data.trip.participants || [],
           expenses: data.trip.expenses || []
         };
+        cacheTripLocally(safeTrip);
         setInitialTrip(safeTrip);
         setCurrentView('dashboard');
       } else {
@@ -67,10 +71,13 @@ function App() {
         if (tripData.success && tripData.trip) {
           const safeTrip = {
             ...tripData.trip,
-            name,
+            currentUser: name?.trim(),
+            name: name?.trim(),
+            upiId,
             participants: tripData.trip.participants || [],
             expenses: tripData.trip.expenses || []
           };
+          cacheTripLocally(safeTrip);
           setInitialTrip(safeTrip);
           setCurrentView('dashboard');
         }
@@ -86,7 +93,7 @@ function App() {
   const activeTrip = trip || initialTrip;
   
   // Explicitly define the current user for precise matching
-  const currentUser = activeTrip?.hostName || activeTrip?.name;
+  const currentUser = activeTrip?.currentUser || activeTrip?.name || activeTrip?.hostName || 'User';
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -116,6 +123,7 @@ function App() {
           rejectSettlement={rejectSettlement}
           onNavigateToSettlement={() => setCurrentView('settlement')}
           onLeaveTrip={() => {
+            clearCachedTrip();
             setInitialTrip(null);
             setCurrentView('onboarding');
           }}
@@ -127,8 +135,11 @@ function App() {
           trip={activeTrip}
           settlements={settlements}
           currentUser={currentUser}
+          onMarkPaid={initiateSettlement}
           initiateSettlement={initiateSettlement}
+          onConfirmSettlement={confirmSettlement}
           confirmSettlement={confirmSettlement}
+          onRejectSettlement={rejectSettlement}
           rejectSettlement={rejectSettlement}
           onBack={() => setCurrentView('dashboard')}
         />

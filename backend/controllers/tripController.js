@@ -86,6 +86,14 @@ export const joinTrip = async (req, res) => {
       await trip.save();
     }
 
+    // Broadcast updated participants in real-time to everyone in the room
+    const io = req.app.get('io');
+    if (io) {
+      io.to(tripId).emit('participants_updated', {
+        participants: trip.participants,
+      });
+    }
+
     res.status(200).json({
       success: true,
       message: `${name} joined the trip!`,

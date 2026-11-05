@@ -23,6 +23,34 @@ export function useSmartSettle(initialTripData) {
     }
   }, [initialTripData, trip?.tripId]);
 
+  // 1.1 Refresh latest trip data and settlements on load
+  useEffect(() => {
+    if (!trip?.tripId) return;
+
+    fetch(`${BACKEND_URL}/api/trips/${trip.tripId}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.trip) {
+          setTrip((prev) => {
+            const myUser = prev?.currentUser || prev?.name || prev?.hostName;
+            const updated = {
+              ...data.trip,
+              currentUser: myUser,
+              name: prev?.name || myUser,
+              hostName: prev?.hostName,
+              upiId: prev?.upiId || prev?.hostUpiId,
+            };
+            cacheTripLocally(updated);
+            return updated;
+          });
+          if (data.optimizedSettlements) {
+            setSettlements(data.optimizedSettlements);
+          }
+        }
+      })
+      .catch((err) => console.log('Offline / unable to refresh trip details:', err.message));
+  }, [trip?.tripId]);
+
   // 2. Offline Queue Sync Handler
   const syncOfflineQueue = useCallback(async (activeTripId) => {
     const queue = getOfflineQueue();
@@ -51,9 +79,11 @@ export function useSmartSettle(initialTripData) {
     const socket = socketRef.current;
 
     // Join Socket Room
+    const myUserName = trip.currentUser || trip.name || trip.hostName || 'User';
     socket.emit('join_trip', { 
       tripId: trip.tripId, 
-      userName: trip.hostName || trip.name || 'User' 
+      userName: myUserName,
+      upiId: trip.upiId || trip.hostUpiId || null
     });
 
     // --- Socket Listeners ---
@@ -138,15 +168,32 @@ export function useSmartSettle(initialTripData) {
   }, [trip?.tripId, syncOfflineQueue]);
 
   // 4. Handshake Action Functions
-  const initiateSettlement = (from, to, amount) => {
+  const initiateSettlement = (arg1, arg2, arg3) => {
     if (!trip?.tripId) return;
+
+    let from, to, amount;
+    if (typeof arg1 === 'object' && arg1 !== null) {
+      from = arg1.from;
+      to = arg1.to;
+      amount = arg1.amount;
+    } else {
+      from = arg1;
+      to = arg2;
+      amount = arg3;
+    }
+
+    if (!from || !to || amount == null) {
+      console.warn('initiateSettlement missing required fields:', { from, to, amount });
+      return;
+    }
+
     const settlementId = `req_${Date.now()}`;
     const payload = { 
       tripId: trip.tripId, 
       settlementId, 
-      from, 
-      to, 
-      amount, 
+      from: from.trim(), 
+      to: to.trim(), 
+      amount: parseFloat(amount), 
       status: 'awaiting_confirmation' 
     };
 
@@ -164,8 +211,17 @@ export function useSmartSettle(initialTripData) {
     }
   };
 
-  const confirmSettlement = (settlementId) => {
+  const confirmSettlement = (settlementIdOrItem) => {
     if (!trip?.tripId) return;
+
+    const settlementId = typeof settlementIdOrItem === 'object'
+      ? settlementIdOrItem?.settlementId
+      : settlementIdOrItem;
+
+    if (!settlementId) {
+      console.warn('confirmSettlement missing settlementId:', settlementIdOrItem);
+      return;
+    }
 
     // Optimistic status update
     setTrip((prev) => {
@@ -186,8 +242,17 @@ export function useSmartSettle(initialTripData) {
     }
   };
 
-  const rejectSettlement = (settlementId) => {
+  const rejectSettlement = (settlementIdOrItem) => {
     if (!trip?.tripId) return;
+
+    const settlementId = typeof settlementIdOrItem === 'object'
+      ? settlementIdOrItem?.settlementId
+      : settlementIdOrItem;
+
+    if (!settlementId) {
+      console.warn('rejectSettlement missing settlementId:', settlementIdOrItem);
+      return;
+    }
 
     // Optimistic status update
     setTrip((prev) => {

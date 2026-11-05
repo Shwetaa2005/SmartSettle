@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowLeft, ExternalLink, CheckCircle, Clock, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
+import { ArrowLeft, ExternalLink, CheckCircle, Clock, ArrowUpRight, ArrowDownLeft, AlertTriangle } from 'lucide-react';
 
 export default function Settlement({ 
   trip = { title: 'Trip', participants: [] }, 
@@ -7,8 +7,11 @@ export default function Settlement({
   currentUser = '', 
   onBack,
   onMarkPaid,
+  initiateSettlement,
   onConfirmSettlement,
-  onRejectSettlement
+  confirmSettlement,
+  onRejectSettlement,
+  rejectSettlement
 }) {
   const [pendingHandshakes, setPendingHandshakes] = useState({});
   const [showAllTransactions, setShowAllTransactions] = useState(false);
@@ -23,31 +26,34 @@ export default function Settlement({
 
   const handleMarkPaid = async (key, item) => {
     setPendingHandshakes((prev) => ({ ...prev, [key]: 'awaiting_confirmation' }));
-    if (onMarkPaid) {
+    const markFn = onMarkPaid || initiateSettlement;
+    if (markFn) {
       try {
-        await onMarkPaid(item);
+        await markFn(item);
       } catch (error) {
         console.error('Failed to mark transaction as paid:', error);
       }
     }
   };
 
-  const handleConfirmReceived = async (key, item) => {
+  const handleConfirmReceived = async (key, item, settlementId) => {
     setPendingHandshakes((prev) => ({ ...prev, [key]: 'settled' }));
-    if (onConfirmSettlement) {
+    const confirmFn = onConfirmSettlement || confirmSettlement;
+    if (confirmFn) {
       try {
-        await onConfirmSettlement(item);
+        await confirmFn(settlementId || item);
       } catch (error) {
         console.error('Failed to confirm settlement:', error);
       }
     }
   };
 
-  const handleReject = async (key, item) => {
+  const handleReject = async (key, item, settlementId) => {
     setPendingHandshakes((prev) => ({ ...prev, [key]: 'unpaid' }));
-    if (onRejectSettlement) {
+    const rejectFn = onRejectSettlement || rejectSettlement;
+    if (rejectFn) {
       try {
-        await onRejectSettlement(item);
+        await rejectFn(settlementId || item);
       } catch (error) {
         console.error('Failed to reject settlement:', error);
       }
@@ -55,8 +61,8 @@ export default function Settlement({
   };
 
   // Filter settlements specific to the logged-in user
-  const myDebts = settlements.filter((s) => s.from === currentUser);
-  const myReceivables = settlements.filter((s) => s.to === currentUser);
+  const myDebts = settlements.filter((s) => s.from?.trim().toLowerCase() === currentUser?.trim().toLowerCase());
+  const myReceivables = settlements.filter((s) => s.to?.trim().toLowerCase() === currentUser?.trim().toLowerCase());
 
   // Calculate Net Personal Balance
   const totalOwed = myDebts.reduce((sum, item) => sum + item.amount, 0);
@@ -118,8 +124,27 @@ export default function Settlement({
 
             {myDebts.map((item, idx) => {
               const key = `${item.from}-${item.to}-${item.amount}`;
-              const currentStatus = item.status || pendingHandshakes[key] || 'unpaid';
-              const payeeInfo = trip.participants?.find((p) => p.name === item.to);
+              const matchingRequest = trip?.settlementRequests?.slice().reverse().find(
+                (r) => r.from?.trim().toLowerCase() === item.from?.trim().toLowerCase() &&
+                       r.to?.trim().toLowerCase() === item.to?.trim().toLowerCase()
+              );
+
+              // Determine status: if request was rejected, reset status back to 'unpaid'
+              let currentStatus = item.status || 'unpaid';
+
+              if (matchingRequest) {
+                if (matchingRequest.status === 'awaiting_confirmation') {
+                  currentStatus = 'awaiting_confirmation';
+                } else if (matchingRequest.status === 'rejected') {
+                  currentStatus = 'unpaid';
+                } else if (matchingRequest.status === 'confirmed') {
+                  currentStatus = 'settled';
+                }
+              } else if (pendingHandshakes[key]) {
+                currentStatus = pendingHandshakes[key];
+              }
+
+              const payeeInfo = trip.participants?.find((p) => p.name?.trim().toLowerCase() === item.to?.trim().toLowerCase());
               const upiId = payeeInfo?.upiId;
 
               return (
@@ -134,6 +159,16 @@ export default function Settlement({
 
                   {currentStatus === 'unpaid' && (
                     <div className="space-y-2 pt-1">
+                      {/* REJECTION FEEDBACK BADGE FOR DEBTOR */}
+                      {matchingRequest?.status === 'rejected' && (
+                        <div className="bg-rose-50 border border-rose-200 p-2.5 rounded-xl flex items-start space-x-2">
+                          <AlertTriangle size={15} className="text-rose-500 shrink-0 mt-0.5" />
+                          <p className="text-[11px] font-semibold text-rose-700 leading-tight">
+                            Payment request rejected by <strong className="font-bold">{item.to}</strong>. Please re-check payment details and try marking as paid again.
+                          </p>
+                        </div>
+                      )}
+
                       {upiId ? (
                         <a
                           href={generateUPILink(upiId, item.to, item.amount)}
@@ -186,7 +221,12 @@ export default function Settlement({
 
             {myReceivables.map((item, idx) => {
               const key = `${item.from}-${item.to}-${item.amount}`;
-              const currentStatus = item.status || pendingHandshakes[key] || 'unpaid';
+              const matchingRequest = trip?.settlementRequests?.find(
+                (r) => r.from?.trim().toLowerCase() === item.from?.trim().toLowerCase() &&
+                       r.to?.trim().toLowerCase() === item.to?.trim().toLowerCase() &&
+                       r.status === 'awaiting_confirmation'
+              );
+              const currentStatus = matchingRequest ? 'awaiting_confirmation' : (item.status || pendingHandshakes[key] || 'unpaid');
 
               return (
                 <div key={idx} className="bg-white rounded-2xl p-4 border border-emerald-100 shadow-sm space-y-3">
@@ -211,13 +251,13 @@ export default function Settlement({
                       </p>
                       <div className="grid grid-cols-2 gap-2">
                         <button
-                          onClick={() => handleConfirmReceived(key, item)}
+                          onClick={() => handleConfirmReceived(key, item, matchingRequest?.settlementId)}
                           className="py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg transition-all"
                         >
                           Confirm Received
                         </button>
                         <button
-                          onClick={() => handleReject(key, item)}
+                          onClick={() => handleReject(key, item, matchingRequest?.settlementId)}
                           className="py-2 bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold text-xs rounded-lg transition-all"
                         >
                           Reject / Not Received
